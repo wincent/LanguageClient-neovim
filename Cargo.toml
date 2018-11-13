@@ -25,6 +25,10 @@ regex = "1"
 glob = "0"
 notify = "4"
 
+[dev-dependencies]
+neovim-lib = "0"
+lazy_static = "1"
+
 [package.metadata.release]
 no-dev-version = true
 pre-release-replacements = [
