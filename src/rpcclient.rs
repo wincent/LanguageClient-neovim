@@ -18,7 +18,7 @@ pub struct RpcClient<W>
 where
     W: Write,
 {
-    languageId: Option<String>,
+    pub languageId: Option<String>,
     /// Incremental message id.
     id: Id,
     /// Writer to server.
@@ -32,9 +32,9 @@ where
     W: Write,
 {
     pub fn new(
-        input: impl BufRead + Send + 'static,
+        reader: impl BufRead + Send + 'static,
         writer: BufWriter<W>,
-        sink: mpsc::Sender<Call>,
+        sink: fmpsc::UnboundedSender<Call>,
         languageId: Option<String>,
     ) -> Fallible<RpcClient<W>> {
         let (tx, rx): (mpsc::Sender<Callback>, mpsc::Receiver<Callback>) = mpsc::channel();
@@ -52,7 +52,7 @@ where
                     let mut count_empty_lines = 0;
                     let mut pending_requests = HashMap::new();
 
-                    let mut input = input;
+                    let mut reader = reader;
                     let mut content_length = 0;
                     loop {
                         match rx.try_recv() {
@@ -66,7 +66,7 @@ where
                         let mut message = String::new();
                         let mut line = String::new();
                         if languageId.is_some() {
-                            input.read_line(&mut line)?;
+                            reader.read_line(&mut line)?;
                             let line = line.trim();
                             if line.is_empty() {
                                 count_empty_lines += 1;
@@ -75,7 +75,7 @@ where
                                 }
 
                                 let mut buf = vec![0; content_length];
-                                input.read_exact(buf.as_mut_slice())?;
+                                reader.read_exact(buf.as_mut_slice())?;
                                 message = String::from_utf8(buf)?;
                             } else {
                                 count_empty_lines = 0;
@@ -92,7 +92,7 @@ where
                                     .trim();
                                 content_length = usize::from_str(len)?;
                             }
-                        } else if input.read_line(&mut message)? == 0 {
+                        } else if reader.read_line(&mut message)? == 0 {
                             break;
                         }
 

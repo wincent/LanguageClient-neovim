@@ -17,7 +17,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 extern crate tokio;
+use futures::sync::{mpsc as fmpsc, oneshot};
+use futures::Stream;
 use tokio::await;
+use tokio::prelude::StreamExt;
 
 #[macro_use]
 extern crate log;
@@ -85,6 +88,24 @@ fn main() -> Fallible<()> {
     let _ = args.get_matches();
 
     let mut state = State::new()?;
+
+    let (tx, mut rx) = fmpsc::unbounded();
+    let client = rpcclient::RpcClient::new(
+        BufReader::new(std::io::stdin()),
+        BufWriter::new(std::io::stdout()),
+        tx,
+        None,
+    )?;
+
+    tokio::run_async(
+        async move {
+            info!("Starting main loop");
+
+            while let Some(request) = await!(tokio::prelude::StreamAsyncExt::next(&mut rx)) {
+                info!("{:?}", request);
+            }
+        },
+    );
 
     let tx = state.tx.clone();
     let reader_thread_name: String = "reader-main".into();
