@@ -9,10 +9,7 @@ pub enum LCError {
         languageId
     )]
     NoServerCommands { languageId: String },
-    #[fail(
-        display = "Language server is not running for: {}",
-        languageId
-    )]
+    #[fail(display = "Language server is not running for: {}", languageId)]
     ServerNotRunning { languageId: String },
 }
 
@@ -370,10 +367,12 @@ impl Sign {
 
     fn get_id(line: u64, severity: Option<DiagnosticSeverity>) -> u64 {
         let base_id = 75_000;
-        base_id + (line - 1) * 4 + severity
-            .unwrap_or(DiagnosticSeverity::Hint)
-            .to_int()
-            .unwrap_or(4)
+        base_id
+            + (line - 1) * 4
+            + severity
+                .unwrap_or(DiagnosticSeverity::Hint)
+                .to_int()
+                .unwrap_or(4)
             - 1
     }
 }
@@ -867,7 +866,8 @@ impl VimExp for VimVar {
             VimVar::GotoCmd => "gotoCmd",
             VimVar::Handle => "handle",
             VimVar::IncludeDeclaration => "includeDeclaration",
-        }.to_owned()
+        }
+        .to_owned()
     }
 
     fn to_exp(&self) -> String {
@@ -881,7 +881,8 @@ impl VimExp for VimVar {
             VimVar::Cword => "expand('<cword>')",
             VimVar::NewName | VimVar::GotoCmd => "v:null",
             VimVar::Handle | VimVar::IncludeDeclaration => "v:true",
-        }.to_owned()
+        }
+        .to_owned()
     }
 }
 
