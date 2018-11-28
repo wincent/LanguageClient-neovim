@@ -1,3 +1,4 @@
+#![feature(await_macro, async_await, futures_api)]
 #![allow(non_snake_case, non_upper_case_globals, unknown_lints)]
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -14,6 +15,9 @@ use std::str::FromStr;
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant};
+
+extern crate tokio;
+use tokio::await;
 
 #[macro_use]
 extern crate log;
@@ -69,6 +73,8 @@ mod languageclient;
 mod logger;
 mod rpchandler;
 mod vim;
+
+mod rpcclient;
 
 #[derive(Debug, StructOpt)]
 struct Arguments {}
