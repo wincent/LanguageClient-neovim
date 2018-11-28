@@ -1,39 +1,44 @@
-use crate::types::{Call, Fallible, Id, Message};
+use crate::types::{Call, Fallible, Id, Message, ToInt, ToParams};
 use crate::vim::RawMessage;
 use failure::{bail, format_err};
 use futures::sync::{mpsc as fmpsc, oneshot};
 use jsonrpc_core as rpc;
+use serde::{de::DeserializeOwned, Serialize};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::str::FromStr;
 use std::sync::mpsc;
+use tokio::await;
+
+type Callback = (Id, oneshot::Sender<rpc::Output>);
 
 /// JSONRPC client.
 pub struct RpcClient<W>
 where
     W: Write,
 {
-    /// Output. Writer to server.
-    output: BufWriter<W>,
+    languageId: Option<String>,
+    /// Incremental message id.
+    id: Id,
+    /// Writer to server.
+    writer: BufWriter<W>,
     /// Send requests "callbacks" into loop.
-    tx: mpsc::Sender<(Id, oneshot::Sender<Value>)>,
+    tx: mpsc::Sender<Callback>,
 }
 
 impl<W> RpcClient<W>
 where
     W: Write,
 {
-    pub fn new<R>(
-        input: R,
-        output: BufWriter<W>,
+    pub fn new(
+        input: impl BufRead + Send + 'static,
+        writer: BufWriter<W>,
         sink: mpsc::Sender<Call>,
         languageId: Option<String>,
-    ) -> Fallible<RpcClient<W>>
-    where
-        R: 'static + BufRead + Send,
-    {
-        let (tx, rx) = mpsc::channel();
+    ) -> Fallible<RpcClient<W>> {
+        let (tx, rx): (mpsc::Sender<Callback>, mpsc::Receiver<Callback>) = mpsc::channel();
+        let languageId_clone = languageId.clone();
 
         std::thread::Builder::new()
             .name(format!(
@@ -42,12 +47,22 @@ where
             ))
             .spawn(move || {
                 let loop_read = move || {
+                    let languageId = languageId_clone;
                     // Count how many consequent empty lines.
                     let mut count_empty_lines = 0;
+                    let mut pending_requests = HashMap::new();
 
                     let mut input = input;
                     let mut content_length = 0;
                     loop {
+                        match rx.try_recv() {
+                            Ok((id, tx)) => {
+                                pending_requests.insert(id, tx);
+                            }
+                            Err(mpsc::TryRecvError::Disconnected) => bail!("Disconnected!"),
+                            Err(mpsc::TryRecvError::Empty) => (),
+                        };
+
                         let mut message = String::new();
                         let mut line = String::new();
                         if languageId.is_some() {
@@ -98,17 +113,26 @@ where
                         }
                         // TODO: cleanup.
                         let message = message.unwrap();
-                        let message = match message {
+                        match message {
                             RawMessage::MethodCall(method_call) => {
-                                Message::MethodCall(languageId.clone(), method_call)
+                                sink.send(Call::MethodCall(languageId.clone(), method_call))?;
                             }
                             RawMessage::Notification(notification) => {
-                                Message::Notification(languageId.clone(), notification)
+                                sink.send(Call::Notification(languageId.clone(), notification))?;
                             }
-                            RawMessage::Output(output) => Message::Output(output),
+                            RawMessage::Output(output) => {
+                                let id = output.id().to_int()?;
+                                pending_requests
+                                    .remove(&id)
+                                    .ok_or_else(|| {
+                                        format_err!("Pending request with id ({}) not found!", id)
+                                    })?
+                                    .send(output)
+                                    .map_err(|output| {
+                                        format_err!("Failed to send output: {:?}", output)
+                                    })?;
+                            }
                         };
-
-                        // TODO
                     }
 
                     Ok(())
@@ -119,14 +143,71 @@ where
                 }
             })?;
 
-        Ok(RpcClient { output, tx })
+        Ok(RpcClient {
+            languageId,
+            id: 0,
+            writer,
+            tx,
+        })
     }
 
-    pub async fn call(&self) -> Fallible<Value> {
-        Ok(json!({}))
-    }
-
-    pub fn notify(&self) -> Fallible<()> {
+    fn write(&mut self, message: impl AsRef<str>) -> Fallible<()> {
+        let message = message.as_ref();
+        info!("=> {:?} {}", self.languageId, message);
+        write!(
+            self.writer,
+            "Content-Length: {}\r\n\r\n{}",
+            message.len(),
+            message
+        )?;
+        self.writer.flush()?;
         Ok(())
+    }
+
+    pub async fn call<R>(
+        &mut self,
+        method: impl AsRef<str> + 'static,
+        params: impl Serialize + 'static,
+    ) -> Fallible<R>
+    where
+        R: DeserializeOwned,
+    {
+        let method = method.as_ref();
+        self.id += 1;
+
+        let method_call = rpc::MethodCall {
+            jsonrpc: Some(rpc::Version::V2),
+            id: rpc::Id::Num(self.id),
+            method: method.into(),
+            params: params.to_params()?,
+        };
+
+        let message = serde_json::to_string(&method_call)?;
+        self.write(&message)?;
+
+        let (tx, rx) = oneshot::channel();
+        self.tx.send((self.id, tx))?;
+        let result = await!(rx)?;
+
+        match result {
+            rpc::Output::Success(s) => Ok(serde_json::from_value(s.result)?),
+            rpc::Output::Failure(f) => {
+                // TODO
+                Err(format_err!("{}", f.error.message))
+            }
+        }
+    }
+
+    pub fn notify(&mut self, method: impl AsRef<str>, params: impl Serialize) -> Fallible<()> {
+        let method = method.as_ref();
+
+        let notification = rpc::Notification {
+            jsonrpc: Some(rpc::Version::V2),
+            method: method.to_owned(),
+            params: params.to_params()?,
+        };
+
+        let message = serde_json::to_string(&notification)?;
+        self.write(&message)
     }
 }
