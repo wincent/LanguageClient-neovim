@@ -2,6 +2,7 @@ use super::*;
 use crate::lsp::notification::Notification;
 use crate::lsp::request::GotoDefinitionResponse;
 use crate::lsp::request::Request;
+use std::sync::{Arc, Mutex};
 
 impl State {
     /////// Utils ///////
@@ -2894,5 +2895,19 @@ impl State {
         self.echo(&msg)?;
         info!("End {}", REQUEST__DebugInfo);
         Ok(json!(msg))
+    }
+}
+
+#[derive(Clone)]
+pub struct LanguageClient(Arc<Mutex<State>>);
+
+impl LanguageClient {
+    pub fn new(state: State) -> Self {
+        LanguageClient(Arc::new(Mutex::new(state)))
+    }
+
+    pub async fn handle_request(self, call: Call) -> Fallible<()> {
+        println!("{:?}", call);
+        Ok(())
     }
 }

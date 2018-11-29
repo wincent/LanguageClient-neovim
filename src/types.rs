@@ -1,4 +1,6 @@
 use super::*;
+use crate::rpcclient::RpcClient;
+use futures::sync::mpsc::UnboundedSender;
 
 pub type Fallible<T> = failure::Fallible<T>;
 
@@ -88,6 +90,8 @@ pub struct HighlightSource {
 
 #[derive(Serialize)]
 pub struct State {
+    clients: HashMap<Option<String>, RpcClient>,
+
     // Program state.
     pub id: Id,
     #[serde(skip_serializing)]
@@ -99,7 +103,7 @@ pub struct State {
 
     pub child_ids: HashMap<String, u32>,
     #[serde(skip_serializing)]
-    pub writers: HashMap<String, Box<dyn SyncWrite>>,
+    pub writers: HashMap<String, Box<SyncWrite>>,
     pub capabilities: HashMap<String, Value>,
     pub registrations: Vec<Registration>,
     pub roots: HashMap<String, String>,
@@ -155,12 +159,25 @@ pub struct State {
 }
 
 impl State {
-    pub fn new() -> Fallible<State> {
+    pub fn new(main_tx: UnboundedSender<Call>) -> Fallible<State> {
         let logger = logger::init()?;
 
         let (tx, rx) = channel();
 
+        let mut clients = HashMap::new();
+        clients.insert(
+            None,
+            RpcClient::new(
+                BufReader::new(std::io::stdin()),
+                BufWriter::new(std::io::stdout()),
+                main_tx,
+                None,
+            )?,
+        );
+
         Ok(State {
+            clients,
+
             id: 0,
             tx,
             rx,

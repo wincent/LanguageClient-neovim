@@ -8,35 +8,32 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::str::FromStr;
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc, Mutex};
 use tokio::await;
 
 type Callback = (Id, oneshot::Sender<rpc::Output>);
 
 /// JSONRPC client.
-pub struct RpcClient<W>
-where
-    W: Write,
-{
+#[derive(Serialize)]
+pub struct RpcClient {
     pub languageId: Option<String>,
     /// Incremental message id.
     id: Id,
+    #[serde(skip_serializing)]
     /// Writer to server.
-    writer: BufWriter<W>,
+    writer: Box<Write + Send>,
+    #[serde(skip_serializing)]
     /// Send requests "callbacks" into loop.
     tx: mpsc::Sender<Callback>,
 }
 
-impl<W> RpcClient<W>
-where
-    W: Write,
-{
+impl RpcClient {
     pub fn new(
         reader: impl BufRead + Send + 'static,
-        writer: BufWriter<W>,
+        writer: impl Write + Send + 'static,
         sink: fmpsc::UnboundedSender<Call>,
         languageId: Option<String>,
-    ) -> Fallible<RpcClient<W>> {
+    ) -> Fallible<RpcClient> {
         let (tx, rx): (mpsc::Sender<Callback>, mpsc::Receiver<Callback>) = mpsc::channel();
         let languageId_clone = languageId.clone();
 
@@ -115,10 +112,16 @@ where
                         let message = message.unwrap();
                         match message {
                             RawMessage::MethodCall(method_call) => {
-                                sink.send(Call::MethodCall(languageId.clone(), method_call))?;
+                                sink.unbounded_send(Call::MethodCall(
+                                    languageId.clone(),
+                                    method_call,
+                                ))?;
                             }
                             RawMessage::Notification(notification) => {
-                                sink.send(Call::Notification(languageId.clone(), notification))?;
+                                sink.unbounded_send(Call::Notification(
+                                    languageId.clone(),
+                                    notification,
+                                ))?;
                             }
                             RawMessage::Output(output) => {
                                 let id = output.id().to_int()?;
@@ -146,7 +149,7 @@ where
         Ok(RpcClient {
             languageId,
             id: 0,
-            writer,
+            writer: Box::new(writer),
             tx,
         })
     }

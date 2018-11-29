@@ -1,4 +1,4 @@
-#![feature(await_macro, async_await, futures_api)]
+#![feature(await_macro, async_await, futures_api, uniform_paths)]
 #![allow(non_snake_case, non_upper_case_globals, unknown_lints)]
 
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process::{ChildStdin, ChildStdout, Stdio};
 use std::str::FromStr;
 use std::sync::mpsc::{channel, Receiver, Sender, TryRecvError};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -73,6 +74,7 @@ use crate::types::*;
 mod utils;
 use crate::utils::*;
 mod languageclient;
+use languageclient::{LanguageClient};
 mod logger;
 mod rpchandler;
 mod vim;
@@ -87,37 +89,22 @@ fn main() -> Fallible<()> {
     let args = Arguments::clap().version(version.as_str());
     let _ = args.get_matches();
 
-    let mut state = State::new()?;
-
-    let (tx, mut rx) = fmpsc::unbounded();
-    let client = rpcclient::RpcClient::new(
-        BufReader::new(std::io::stdin()),
-        BufWriter::new(std::io::stdout()),
-        tx,
-        None,
-    )?;
+    let (tx, mut rx): (fmpsc::UnboundedSender<Call>, fmpsc::UnboundedReceiver<Call>) =
+        fmpsc::unbounded();
+    let languageclient = LanguageClient::new(State::new(tx)?);
 
     tokio::run_async(
         async move {
             info!("Starting main loop");
 
             while let Some(request) = await!(tokio::prelude::StreamAsyncExt::next(&mut rx)) {
-                info!("{:?}", request);
+                if let Ok(request) = request {
+                    info!("{:?}", request);
+                    languageclient.clone().handle_request(request);
+                }
             }
         },
     );
 
-    let tx = state.tx.clone();
-    let reader_thread_name: String = "reader-main".into();
-    thread::Builder::new()
-        .name(reader_thread_name.clone())
-        .spawn(move || {
-            let stdin = std::io::stdin();
-            let stdin = stdin.lock();
-            if let Err(err) = vim::loop_reader(stdin, &None, &tx) {
-                error!("{} exited: {:?}", reader_thread_name, err);
-            }
-        })?;
-
-    state.loop_message()
+    Ok(())
 }
