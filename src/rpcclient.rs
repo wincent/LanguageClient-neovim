@@ -21,7 +21,7 @@ pub struct RpcClient {
     id: Id,
     #[serde(skip_serializing)]
     /// Writer to server.
-    writer: Box<Write + Send>,
+    writer: Arc<Mutex<Write>>,
     #[serde(skip_serializing)]
     /// Send requests "callbacks" into loop.
     tx: mpsc::Sender<Callback>,
@@ -149,7 +149,7 @@ impl RpcClient {
         Ok(RpcClient {
             languageId,
             id: 0,
-            writer: Box::new(writer),
+            writer: Arc::new(Mutex::new(writer)),
             tx,
         })
     }
@@ -158,12 +158,12 @@ impl RpcClient {
         let message = message.as_ref();
         info!("=> {:?} {}", self.languageId, message);
         write!(
-            self.writer,
+            self.writer.lock().unwrap(),
             "Content-Length: {}\r\n\r\n{}",
             message.len(),
             message
         )?;
-        self.writer.flush()?;
+        self.writer.lock().unwrap().flush()?;
         Ok(())
     }
 

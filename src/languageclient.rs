@@ -2907,7 +2907,10 @@ impl LanguageClient {
     }
 
     pub async fn handle_request(self, call: Call) -> Fallible<()> {
-        println!("{:?}", call);
+	let state = self.0.lock().unwrap();
+	let client = state.clients.get(&None).unwrap();
+	let v: Value = await!(client.call("eval", 1))?;
+	println!("Received {:?}", v);
         Ok(())
     }
 }

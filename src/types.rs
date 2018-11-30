@@ -90,7 +90,7 @@ pub struct HighlightSource {
 
 #[derive(Serialize)]
 pub struct State {
-    clients: HashMap<Option<String>, RpcClient>,
+    pub clients: HashMap<Option<String>, RpcClient>,
 
     // Program state.
     pub id: Id,

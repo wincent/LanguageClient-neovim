@@ -17,11 +17,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+#[macro_use]
 extern crate tokio;
 use futures::sync::{mpsc as fmpsc, oneshot};
-use futures::Stream;
-use tokio::await;
-use tokio::prelude::StreamExt;
 
 #[macro_use]
 extern crate log;
@@ -100,7 +98,7 @@ fn main() -> Fallible<()> {
             while let Some(request) = await!(tokio::prelude::StreamAsyncExt::next(&mut rx)) {
                 if let Ok(request) = request {
                     info!("{:?}", request);
-                    languageclient.clone().handle_request(request);
+                    await!(languageclient.clone().handle_request(request));
                 }
             }
         },
