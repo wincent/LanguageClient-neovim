@@ -1,3 +1,5 @@
+" TODO: make buffer aware.
+
 function! LSP#filename() abort
     " When executing autocommand, `%` might have already changed.
     let l:filename = expand('<afile>:p')

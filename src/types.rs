@@ -73,6 +73,8 @@ impl SyncWrite for BufWriter<TcpStream> {}
 pub type Id = u64;
 /// Langauge server id.
 pub type LanguageId = Option<String>;
+/// Buffer id/handle.
+pub type Bufnr = i64;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum Message {
@@ -89,7 +91,7 @@ pub enum Call {
 
 #[derive(Clone, Copy, Serialize)]
 pub struct HighlightSource {
-    pub buffer: u64,
+    pub buffer: Bufnr,
     pub source: u64,
 }
 
